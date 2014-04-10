@@ -5,7 +5,7 @@
 
 	<artifactId>spring-oauth2-tests-xml-jwt-store</artifactId>
 
-	<name>spring-oauth2-tests-xml-jwt-store</name>
+	<name>spring-oauth2-tests-xml-jwt</name>
 	<description>Demo project</description>
 
 	<parent>

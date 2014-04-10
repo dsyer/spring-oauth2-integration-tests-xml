@@ -13,7 +13,7 @@
       <module>vanilla</module>
       <module>mappings</module>
       <module>form</module>
-      <module>jwt-store</module>
+      <module>jwt</module>
       <module>approval</module>
       <module>jdbc</module>
       <module>client</module>
