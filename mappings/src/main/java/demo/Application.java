@@ -1,20 +1,36 @@
 package demo;
 
+import javax.servlet.Filter;
+
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.context.embedded.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.context.annotation.ImportResource;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.oauth2.config.annotation.configurers.ClientDetailsServiceConfigurer;
-import org.springframework.security.oauth2.config.annotation.web.configuration.AuthorizationServerConfigurerAdapter;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableAuthorizationServer;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableResourceServer;
-import org.springframework.security.oauth2.config.annotation.web.configuration.ResourceServerConfigurerAdapter;
-import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerSecurityConfigurer;
-import org.springframework.security.oauth2.config.annotation.web.configurers.ResourceServerSecurityConfigurer;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.oauth2.provider.ClientDetailsService;
+import org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService;
+import org.springframework.security.oauth2.provider.endpoint.WhitelabelApprovalEndpoint;
+import org.springframework.security.oauth2.provider.endpoint.WhitelabelErrorEndpoint;
+import org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHandler;
+import org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint;
+import org.springframework.security.oauth2.provider.expression.OAuth2WebSecurityExpressionHandler;
+import org.springframework.security.oauth2.provider.token.DefaultTokenServices;
+import org.springframework.security.oauth2.provider.token.InMemoryTokenStore;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 @ComponentScan
 @EnableAutoConfiguration
 @RestController
+@ImportResource("classpath:/application.xml")
 public class Application {
 
 	public static void main(String[] args) {
@@ -34,79 +51,111 @@ public class Application {
 	}
 
 	@Configuration
-	@EnableResourceServer
-	protected static class ResourceServer extends ResourceServerConfigurerAdapter {
+	protected static class OAuth2Config {
 
-		@Override
-		public void configure(HttpSecurity http) throws Exception {
-			// @formatter:off
-			http
-				// Just for laughs, apply OAuth protection to only 2 resources
-				.requestMatchers().antMatchers("/","/admin/beans")
-			.and()
-				.authorizeRequests()
-					.anyRequest().access("#oauth2.hasScope('read')");
-			// @formatter:on
+		@Autowired
+		private ClientDetailsService clientDetailsService;
+
+		@Bean
+		public DefaultTokenServices tokenServices() {
+			DefaultTokenServices services = new DefaultTokenServices();
+			services.setClientDetailsService(clientDetailsService);
+			services.setSupportRefreshToken(true);
+			services.setTokenStore(new InMemoryTokenStore());
+			return services;
 		}
 
-		@Override
-		public void configure(ResourceServerSecurityConfigurer resources) throws Exception {
-			resources.resourceId("sparklr");
+		@Bean
+		public WhitelabelErrorEndpoint oauth2ErrorEndpoint() {
+			return new WhitelabelErrorEndpoint();
+		}
+
+		@Bean
+		public WhitelabelApprovalEndpoint oauth2ApprovalEndpoint() {
+			return new WhitelabelApprovalEndpoint();
 		}
 
 	}
 
 	@Configuration
-	@EnableAuthorizationServer
-	protected static class OAuth2Config extends AuthorizationServerConfigurerAdapter {
+	protected static class ResourceServer extends WebSecurityConfigurerAdapter {
 
-		@Value("${oauth.paths.token:/oauth/authorize}")
-		private String tokenPath = "/oauth/token";
-
-		@Value("${oauth.paths.authorize:/oauth/authorize}")
-		private String authorizePath = "/oauth/authorize";
-
-		@Value("${oauth.paths.confirm:/oauth/confirm_access}")
-		private String confirmPath = "/oauth/confirm_access";
-		
 		@Autowired
-		private AuthenticationManager authenticationManager;
+		@Qualifier("resourceFilter")
+		private Filter resourceFilter;
 
-		@Override
-		public void configure(AuthorizationServerSecurityConfigurer oauthServer) throws Exception {
-			// @formatter:off	
-			oauthServer.authenticationManager(authenticationManager)
-				.pathMapping("/oauth/confirm_access", confirmPath)
-				.pathMapping("/oauth/token", tokenPath)
-				.pathMapping("/oauth/authorize", authorizePath);
-			// @formatter:on
+		@Bean
+		public FilterRegistrationBean resourceFilterRegistration() {
+			FilterRegistrationBean bean = new FilterRegistrationBean();
+			bean.setFilter(resourceFilter);
+			bean.setEnabled(false);
+			return bean;
 		}
 
 		@Override
-		public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+		protected void configure(HttpSecurity http) throws Exception {
+			// @formatter:off	
+			http.addFilterBefore(resourceFilter, AbstractPreAuthenticatedProcessingFilter.class)
+				// Just for laughs, apply OAuth protection to only 2 resources
+				.requestMatchers().antMatchers("/","/admin/beans")
+			.and()
+				.authorizeRequests()
+					.anyRequest().access("#oauth2.hasScope('read')").expressionHandler(new OAuth2WebSecurityExpressionHandler())
+			.and()
+				.anonymous().disable()
+				.csrf().disable()
+				.exceptionHandling()
+					.authenticationEntryPoint(new OAuth2AuthenticationEntryPoint())
+					.accessDeniedHandler(new OAuth2AccessDeniedHandler());
+			// @formatter:on
+		}
+
+	}
+
+	@Configuration
+	@Order(Ordered.HIGHEST_PRECEDENCE)
+	protected static class TokenEndpointSecurity extends WebSecurityConfigurerAdapter {
+
+		@Autowired
+		private ClientDetailsService clientDetailsService;
+
+		@Override
+		protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+			auth.userDetailsService(clientDetailsUserService());
+		}
+
+		@Bean
+		protected UserDetailsService clientDetailsUserService() {
+			return new ClientDetailsUserDetailsService(clientDetailsService);
+		}
+
+		@Override
+		protected void configure(HttpSecurity http) throws Exception {
 			// @formatter:off
-		 	clients.inMemory()
-		        .withClient("my-trusted-client")
-		            .authorizedGrantTypes("password", "authorization_code", "refresh_token", "implicit")
-		            .authorities("ROLE_CLIENT", "ROLE_TRUSTED_CLIENT")
-		            .scopes("read", "write", "trust")
-		            .resourceIds("sparklr")
-		            .accessTokenValiditySeconds(60)
- 		    .and()
-		        .withClient("my-client-with-registered-redirect")
-		            .authorizedGrantTypes("authorization_code")
-		            .authorities("ROLE_CLIENT")
-		            .scopes("read", "trust")
-		            .resourceIds("sparklr")
-		            .redirectUris("http://anywhere?key=value")
- 		    .and()
-		        .withClient("my-client-with-secret")
-		            .authorizedGrantTypes("client_credentials", "password")
-		            .authorities("ROLE_CLIENT")
-		            .scopes("read")
-		            .resourceIds("sparklr")
-		            .secret("secret");
-		// @formatter:on
+			http.anonymous().disable()
+				.antMatcher("/token")
+				.authorizeRequests().anyRequest().authenticated()
+			.and()
+				.httpBasic().authenticationEntryPoint(authenticationEntryPoint())
+			.and()
+				.csrf().requireCsrfProtectionMatcher(new AntPathRequestMatcher("/token")).disable()
+				.exceptionHandling().accessDeniedHandler(accessDeniedHandler())
+			.and()
+				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
+			// @formatter:on
+		}
+
+		@Bean
+		protected AccessDeniedHandler accessDeniedHandler() {
+			return new OAuth2AccessDeniedHandler();
+		}
+
+		@Bean
+		protected AuthenticationEntryPoint authenticationEntryPoint() {
+			OAuth2AuthenticationEntryPoint entryPoint = new OAuth2AuthenticationEntryPoint();
+			entryPoint.setTypeName("Basic");
+			entryPoint.setRealmName("oauth2/client");
+			return entryPoint;
 		}
 
 	}

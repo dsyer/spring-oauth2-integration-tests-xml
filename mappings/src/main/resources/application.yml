@@ -11,4 +11,4 @@ oauth:
   paths:
     token: /token
     authorize: /authorize
-    confirm: /approve    
+    confirm: forward:/approve

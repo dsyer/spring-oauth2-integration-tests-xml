@@ -102,7 +102,9 @@ public class Application {
 			.and()
 				.anonymous().disable()
 				.csrf().disable()
-				.exceptionHandling().authenticationEntryPoint(new OAuth2AuthenticationEntryPoint());
+				.exceptionHandling()
+					.authenticationEntryPoint(new OAuth2AuthenticationEntryPoint())
+					.accessDeniedHandler(new OAuth2AccessDeniedHandler());
 			// @formatter:on
 		}
 
