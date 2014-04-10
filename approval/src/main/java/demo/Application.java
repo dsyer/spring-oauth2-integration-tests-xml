@@ -1,31 +1,51 @@
 package demo;
 
+import javax.servlet.Filter;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.context.embedded.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.oauth2.config.annotation.configurers.ClientDetailsServiceConfigurer;
-import org.springframework.security.oauth2.config.annotation.web.configuration.AuthorizationServerConfigurerAdapter;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableAuthorizationServer;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableResourceServer;
-import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerSecurityConfigurer;
+import org.springframework.context.annotation.ImportResource;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.provider.ClientDetailsService;
 import org.springframework.security.oauth2.provider.OAuth2RequestFactory;
 import org.springframework.security.oauth2.provider.approval.ApprovalStore;
+import org.springframework.security.oauth2.provider.approval.ApprovalStoreUserApprovalHandler;
 import org.springframework.security.oauth2.provider.approval.TokenApprovalStore;
+import org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService;
+import org.springframework.security.oauth2.provider.endpoint.WhitelabelApprovalEndpoint;
+import org.springframework.security.oauth2.provider.endpoint.WhitelabelErrorEndpoint;
+import org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHandler;
+import org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint;
+import org.springframework.security.oauth2.provider.expression.OAuth2WebSecurityExpressionHandler;
+import org.springframework.security.oauth2.provider.request.DefaultOAuth2RequestFactory;
+import org.springframework.security.oauth2.provider.token.DefaultTokenServices;
 import org.springframework.security.oauth2.provider.token.InMemoryTokenStore;
 import org.springframework.security.oauth2.provider.token.TokenStore;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @Configuration
 @ComponentScan
 @EnableAutoConfiguration
-@EnableResourceServer
 @RestController
+@ImportResource("classpath:/application.xml")
 public class Application {
 
 	public static void main(String[] args) {
@@ -38,62 +58,132 @@ public class Application {
 	}
 
 	@Configuration
-	@EnableAuthorizationServer
-	protected static class OAuth2Config extends AuthorizationServerConfigurerAdapter {
+	protected static class OAuth2Config {
 
-		@Autowired
-		private AuthenticationManager authenticationManager;
-		
 		@Autowired
 		private OAuth2RequestFactory requestFactory;
 
 		@Autowired
 		private ClientDetailsService clientDetailsService;
 
-		@Override
-		public void configure(AuthorizationServerSecurityConfigurer oauthServer) throws Exception {
-			oauthServer.authenticationManager(authenticationManager);
-		}
-		
 		@Bean
-		public ApprovalStore approvalStore() throws Exception {
+		public WhitelabelErrorEndpoint oauth2ErrorEndpoint() {
+			return new WhitelabelErrorEndpoint();
+		}
+
+		@Bean
+		public WhitelabelApprovalEndpoint oauth2ApprovalEndpoint() {
+			return new WhitelabelApprovalEndpoint();
+		}
+
+		@Bean
+		public ApprovalStore approvalStore() {
 			TokenApprovalStore store = new TokenApprovalStore();
 			store.setTokenStore(tokenStore());
 			return store;
 		}
 		
 		@Bean
+		public ApprovalStoreUserApprovalHandler userApprovalHandler() {
+			ApprovalStoreUserApprovalHandler handler = new ApprovalStoreUserApprovalHandler();
+			handler.setApprovalStore(approvalStore());
+			handler.setClientDetailsService(clientDetailsService);
+			handler.setRequestFactory(new DefaultOAuth2RequestFactory(clientDetailsService));
+			return handler;
+		}
+		
+		@Bean
+		public DefaultTokenServices tokenServices() {
+			DefaultTokenServices services = new DefaultTokenServices();
+			services.setClientDetailsService(clientDetailsService);
+			services.setSupportRefreshToken(true);
+			services.setTokenStore(tokenStore());
+			return services;
+		}
+
+		@Bean
 		public TokenStore tokenStore() {
 			return new InMemoryTokenStore();
 		}
 
-		@Override
-		public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
-			// @formatter:off
-		 	clients.inMemory()
-		        .withClient("my-trusted-client")
-		            .authorizedGrantTypes("password", "authorization_code", "refresh_token", "implicit")
-		            .authorities("ROLE_CLIENT", "ROLE_TRUSTED_CLIENT")
-		            .scopes("read", "write", "trust")
-		            .resourceIds("oauth2-resource")
-		            .accessTokenValiditySeconds(60)
- 		    .and()
-		        .withClient("my-client-with-registered-redirect")
-		            .authorizedGrantTypes("authorization_code")
-		            .authorities("ROLE_CLIENT")
-		            .scopes("read", "trust")
-		            .resourceIds("oauth2-resource")
-		            .redirectUris("http://anywhere?key=value")
- 		    .and()
-		        .withClient("my-client-with-secret")
-		            .authorizedGrantTypes("client_credentials", "password")
-		            .authorities("ROLE_CLIENT")
-		            .scopes("read")
-		            .resourceIds("oauth2-resource")
-		            .secret("secret");
-		// @formatter:on
+	}
+
+	@Configuration
+	protected static class ResourceServer extends WebSecurityConfigurerAdapter {
+		
+		@Autowired
+		@Qualifier("resourceFilter")
+		private Filter resourceFilter;
+
+		@Bean
+		public FilterRegistrationBean resourceFilterRegistration() {
+			FilterRegistrationBean bean = new FilterRegistrationBean();
+			bean.setFilter(resourceFilter);
+			bean.setEnabled(false);
+			return bean;
 		}
+
+		@Override
+		protected void configure(HttpSecurity http) throws Exception {
+			// @formatter:off	
+			http.addFilterBefore(resourceFilter, AbstractPreAuthenticatedProcessingFilter.class)
+				.requestMatcher(new NegatedRequestMatcher(new AntPathRequestMatcher("/oauth/**")))
+				.authorizeRequests().anyRequest().authenticated().expressionHandler(new OAuth2WebSecurityExpressionHandler())
+			.and()
+				.anonymous().disable()
+				.csrf().disable()
+				.exceptionHandling().authenticationEntryPoint(new OAuth2AuthenticationEntryPoint());
+			// @formatter:on
+		}
+
 
 	}
 
+	@Configuration
+	@Order(Ordered.HIGHEST_PRECEDENCE)
+	protected static class TokenEndpointSecurity extends WebSecurityConfigurerAdapter {
+
+		@Autowired
+		private ClientDetailsService clientDetailsService;
+
+		@Override
+		protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+			auth.userDetailsService(clientDetailsUserService());
+		}
+
+		@Bean
+		protected UserDetailsService clientDetailsUserService() {
+			return new ClientDetailsUserDetailsService(clientDetailsService);
+		}
+
+		@Override
+		protected void configure(HttpSecurity http) throws Exception {
+			// @formatter:off
+			http.anonymous().disable()
+				.antMatcher("/oauth/token")
+				.authorizeRequests().anyRequest().authenticated()
+			.and()
+				.httpBasic().authenticationEntryPoint(authenticationEntryPoint())
+			.and()
+				.csrf().requireCsrfProtectionMatcher(new AntPathRequestMatcher("/oauth/token")).disable()
+				.exceptionHandling().accessDeniedHandler(accessDeniedHandler())
+			.and()
+				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
+			// @formatter:on
+		}
+
+		@Bean
+		protected AccessDeniedHandler accessDeniedHandler() {
+			return new OAuth2AccessDeniedHandler();
+		}
+
+		@Bean
+		protected AuthenticationEntryPoint authenticationEntryPoint() {
+			OAuth2AuthenticationEntryPoint entryPoint = new OAuth2AuthenticationEntryPoint();
+			entryPoint.setTypeName("Basic");
+			entryPoint.setRealmName("oauth2/client");
+			return entryPoint;
+		}
+
+	}
 }
