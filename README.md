@@ -1,33 +1,13 @@
-This project contains a selection of minimal apps that are functional
-OAuth2 Authorization Servers (token issuer) and Resource Servers
-(protected API). (You could split the two roles across two
-applications if you preferred.) It uses
-[Spring Boot](https://github.com/spring-projects/spring-boot) to
-provide an embedded servlet container and for defaulting a load of
-configuration, so you should be up and running very quickly. There are
-integration tests proving that it works and also showing you how to
-access it with the Spring `RestTemplate` API.
-
-The apps are in subdirectories:
-
-* vanilla - a basic, no-frills Authorization Server and Resource Server
-
-* jwt - uses Json Web Tokens as the token format
-
-* mappings - changes the default values for the endpoint paths and the
-  protected resource paths
-  
-* approval - an auth server with granular approvals (per scope)
-
-* jdbc - uses JDBC stores for everything
-
-* form - an auth server that accepts form-based client authentication
-
-* client - a simple client app
-
-The client is wired to the other servers as long as they run on the
-default port of 8080. 
-
+This project is for integration testing the XML configuration features
+of
+[Spring OAuth2](https://github.com/spring-projects/spring-security-oauth).
+They use a mixture of Java (`@Configuration`) and XML to configure
+OAuth clients and servers, but only using XML for the Spring OAuth
+bits. Since Spring Security cannot be used with a mixture of
+`@Configuration` and XML this is probably not the nicest way to do
+things (pure XML or pure Java would probably be better). Pure Java
+versions of the same apps can be found
+[here](https://github.com/dsyer/spring-oauth-integration-tests).
 
 ## Building and Running
 
