@@ -18,7 +18,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.oauth2.config.annotation.web.configuration.EnableResourceServer;
 import org.springframework.security.oauth2.provider.ClientDetailsService;
 import org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService;
 import org.springframework.security.oauth2.provider.endpoint.WhitelabelApprovalEndpoint;
@@ -54,7 +53,6 @@ public class Application {
 	}
 	
 	@Configuration
-	@EnableResourceServer
 	protected static class ResourceServer extends WebSecurityConfigurerAdapter {
 		
 		@Autowired
