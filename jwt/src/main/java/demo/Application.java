@@ -26,7 +26,7 @@ import org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHand
 import org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint;
 import org.springframework.security.oauth2.provider.expression.OAuth2WebSecurityExpressionHandler;
 import org.springframework.security.oauth2.provider.token.DefaultTokenServices;
-import org.springframework.security.oauth2.provider.token.JwtTokenEnhancer;
+import org.springframework.security.oauth2.provider.token.JwtAccessTokenConverter;
 import org.springframework.security.oauth2.provider.token.JwtTokenStore;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -104,8 +104,8 @@ public class Application {
 		}
 
 		@Bean
-		public JwtTokenEnhancer tokenEnhancer() {
-			return new JwtTokenEnhancer();
+		public JwtAccessTokenConverter tokenEnhancer() {
+			return new JwtAccessTokenConverter();
 		}
 
 		@Bean
